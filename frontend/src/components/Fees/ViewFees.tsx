@@ -58,17 +58,29 @@ interface FeeData {
 }
 
 const ViewFees: React.FC = () => {
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const firstFeeYear = Math.min(2023, currentYear);
+  const lastFeeYear = Math.max(2026, currentYear);
   const {
     register,
     handleSubmit,
     setValue: setFormValue,
     formState: { errors },
-  } = useForm<GetFeeModel>();
+  } = useForm<GetFeeModel>({
+    defaultValues: {
+      class_id: 0,
+      fee_month: currentDate.toLocaleString("en-US", { month: "long" }),
+      fee_year: String(currentYear),
+      fee_status: "all",
+    },
+  });
   const { printRecords } = usePrint();
-  const { role } = useRole();
-  const [classNameList, setClassNameList] = useState<
-    { id: number; title: string }[]
-  >([]);
+  const { role, permissions, permissionsLoaded } = useRole();
+  const canEditFee = permissionsLoaded && permissions?.fees?.edit === true;
+  const [classNameList, setClassNameList] = useState<{ id: number; title: string }[]>([
+    { id: 0, title: "All" },
+  ]);
   const [isLoading, setIsLoading] = useState(false);
   const [feesData, setFeesData] = useState<FeeData[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -315,10 +327,13 @@ const filteredFeesData = feesData.filter((fee) => {
               label=""
               options={[
                 { id: "all", title: "All" },
-                { id: "2023", title: "2023" },
-                { id: "2024", title: "2024" },
-                { id: "2025", title: "2025" },
-                { id: "2026", title: "2026" },
+                ...Array.from(
+                  { length: lastFeeYear - firstFeeYear + 1 },
+                  (_, index) => {
+                    const year = firstFeeYear + index;
+                    return { id: String(year), title: String(year) };
+                  }
+                ),
               ]}
               {...register("fee_year")}
               className="w-full"
@@ -475,31 +490,35 @@ const filteredFeesData = feesData.filter((fee) => {
                           </span>
                         </TableCell>
                         <TableCell className="px-3 py-3 no-print">
-                          <div className="flex items-center gap-2 justify-center">
-                            <EditFees
-                              feeId={fee.fee_id}
-                              studentName={fee.student_name}
-                              fatherName={fee.father_name}
-                              className={fee.class_name}
-                              feeStatus={fee.fee_status}
-                              feeAmount={fee.fee_amount}
-                              feeMonth={fee.fee_month}
-                              feeYear={fee.fee_year}
-                              onUpdate={handleFeeUpdate}
-                            />
-                            {role === "ADMIN" && fee.fee_id && (
-                              <DelConfirmMsg
-                                rowId={fee.fee_id}
-                                OnDelete={(confirmed) => {
-                                  if (confirmed) {
-                                    handleDeleteFee(fee.fee_id);
-                                  }
-                                }}
-                                title="Delete Fee Record?"
-                                text={`Are you sure you want to delete the fee record for ${fee.student_name}? This action cannot be undone.`}
-                              />
-                            )}
-                          </div>
+                          {(canEditFee || (role === "ADMIN" && fee.fee_id)) && (
+                            <div className="flex items-center gap-2 justify-center">
+                              {canEditFee && (
+                                <EditFees
+                                  feeId={fee.fee_id}
+                                  studentName={fee.student_name}
+                                  fatherName={fee.father_name}
+                                  className={fee.class_name}
+                                  feeStatus={fee.fee_status}
+                                  feeAmount={fee.fee_amount}
+                                  feeMonth={fee.fee_month}
+                                  feeYear={fee.fee_year}
+                                  onUpdate={handleFeeUpdate}
+                                />
+                              )}
+                              {role === "ADMIN" && fee.fee_id && (
+                                <DelConfirmMsg
+                                  rowId={fee.fee_id}
+                                  OnDelete={(confirmed) => {
+                                    if (confirmed) {
+                                      handleDeleteFee(fee.fee_id);
+                                    }
+                                  }}
+                                  title="Delete Fee Record?"
+                                  text={`Are you sure you want to delete the fee record for ${fee.student_name}? This action cannot be undone.`}
+                                />
+                              )}
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))
