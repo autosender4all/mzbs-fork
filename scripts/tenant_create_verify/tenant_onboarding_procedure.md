@@ -21,7 +21,7 @@ This document captures the full tenant onboarding and verification workflow for 
   - frontend URL
   - raw Neon connection string from step 1
 - The create-tenant form should route the connection string through the normal `encrypt_connection_string()` path using the current key.
-- Confirm the tenant appears in the control-plane tenant list with status `Active` or `provisioning` if that is the expected intermediate state.
+- Confirm the tenant appears in the control-plane tenant list with status `provisioning`. New tenants are created in this state; the backend deliberately blocks login for `provisioning` tenants.
 
 ## 3. Run migrations against this tenant only
 
@@ -52,15 +52,24 @@ NEXT_PUBLIC_TENANT_ID=<the tenant_id from step 2, exact match>
 
 - Trigger the first deploy so the tenant ID is baked into the site.
 
-## 6. Verify before marking fully live
+## 6. Enable login for verification
+
+The backend allows database access only when a tenant's control-plane status is
+`trial` or `active`. After migrations and admin-user setup are complete, change
+the tenant from `provisioning` to `trial` in the platform-admin panel before
+attempting to log in. Branding can load while the tenant is still
+`provisioning`, so a visible school logo does not confirm that login is enabled.
+
+## 7. Verify before marking fully live
 
 - Open the site in an incognito window and log in as the new admin.
 - Confirm the login request payload includes the correct `tenant_id`.
 - Confirm dashboard and CRUD activity is touching the new tenant's database and not another tenant's database.
 - Try a suspend/reactivate toggle from the admin panel and confirm it takes effect without restarting the backend.
 
-## 7. Mark the tenant Active in the Control Plane
+## 8. Mark the tenant Active in the Control Plane
 
-- If the tenant is not already marked `Active`, update the status in the Control Plane.
+- After verification succeeds, update the tenant's status from `trial` to
+  `active` in the control plane if it should be fully live.
 - Once verified, the onboarding is complete.
 - No backend redeploy is needed during this process.

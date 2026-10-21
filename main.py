@@ -81,6 +81,7 @@ origins = [
     # "https://mzbs.vercel.app",  # Production frontend
     "https://mzbs.netlify.app",  # Netlify production frontend
     "https://ktns.netlify.app",  # KTNS production frontend
+    "https://greenwood-khanschool.netlify.app",  # Greenwood production frontend
     "https://mzbs-staging-school.netlify.app",  # Staging frontend
     "https://mzbs-temp.vercel.app",  # temporary deployment
 ]
@@ -130,6 +131,7 @@ app.add_middleware(
         "mzbs-temp.vercel.app",
         "mzbs.netlify.app",
         "ktns.netlify.app",
+        "greenwood-khanschool.netlify.app",
         "mzbs-staging-school.netlify.app",
         "*.vercel.app",
         "site--mzbs--lvqlqxbx7xgh.code.run",

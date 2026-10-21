@@ -103,7 +103,7 @@ export default function LoginForm() {
         </div>
         <h2 className="mt-6 text-center text-3xl font-semibold tracking-tight text-slate-900">Welcome back</h2>
         <p className="mb-6 mt-2 text-center text-sm text-slate-600">Enter your credentials to access your account</p>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form method="post" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label htmlFor="username" className="mb-1.5 block text-sm font-medium text-slate-700">Username</label>
             <div className="relative mt-1">
