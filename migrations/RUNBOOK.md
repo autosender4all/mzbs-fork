@@ -106,9 +106,13 @@ approved for that tenant.
    record-keeping.
 
 7. **One tenant's failure never blocks another tenant's run.**
-   This is built into `run_for_tenant()` — exceptions are caught per-tenant,
-   not allowed to propagate and kill the loop. Confirm this behavior still
-   holds after any change to `run_all_tenants.py`.
+   Tenant connection lookup/decryption and migration execution failures are
+   reported against that tenant and do not stop the loop. A dry-run exits
+   nonzero if any active tenant could not be checked; resolve the reported
+   tenant-specific error before treating the run as a complete check. If
+   decryption fails, verify that `CONTROL_PLANE_ENCRYPTION_KEY` matches the
+   key used to encrypt that tenant's `db_connection_secret` and that the
+   stored value is valid.
 
 ## Retrying a single failed tenant
 
@@ -120,6 +124,18 @@ This re-runs the full pending set for just that tenant. Because
 succeeded for that tenant is skipped — only the genuinely pending/failed ones
 re-apply.
 
+To run pending migrations for one tenant by ID, including a tenant still in
+`provisioning` status:
+
+```bash
+uv run python -m migrations.run_tenant_migrations --tenant <tenant_id> --dry-run
+uv run python -m migrations.run_tenant_migrations --tenant <tenant_id>
+```
+
+Omit `--tenant` to be prompted for the ID. Review the dry-run output before
+running migrations. This command does not activate the tenant; activate it only
+after onboarding checks have passed.
+
 ## Onboarding a brand-new school (manual, per Phase 0/2 decisions)
 
 1. Create the new Neon project, empty.
@@ -127,7 +143,8 @@ re-apply.
    `provisioning`.
 3. Run the full migration history against it:
    ```bash
-   uv run python -m migrations.run_all_tenants --tenant <new_tenant_id>
+   uv run python -m migrations.run_tenant_migrations --tenant <new_tenant_id> --dry-run
+   uv run python -m migrations.run_tenant_migrations --tenant <new_tenant_id>
    ```
 4. Verify manually (log in as a seeded test user, exercise each module).
 5. Flip status to `active` in the control plane.

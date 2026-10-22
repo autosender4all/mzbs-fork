@@ -33,13 +33,17 @@ from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-TENANT_ID = "mzbs_staging_school"
+TENANT_ID = "greenwood-khanschool"
+# # TENANT_ID = "mzbs_staging_school" 
+# TENANT_ID = "bwhs"  
+# TENANT_ID = "mzbs" 
+
 # Change the tenant name above to "any other tenant_id" if you want to re-encrypt a different tenant's db_connection_secret. The script will still only ever touch that one row.
 # ---------------------------------------------------------------------------
 # 1. Load env vars from the project .env or the current shell, matching
 #    exactly what Northflank has for production.
 # ---------------------------------------------------------------------------
-load_dotenv(Path(__file__).with_name(".env"))
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 CONTROL_PLANE_DATABASE_URL = os.environ.get("CONTROL_PLANE_DATABASE_URL")
 CONTROL_PLANE_ENCRYPTION_KEY = os.environ.get("CONTROL_PLANE_ENCRYPTION_KEY")

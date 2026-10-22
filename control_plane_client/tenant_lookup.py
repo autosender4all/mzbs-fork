@@ -19,7 +19,7 @@ import threading
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, urlunparse
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
 from sqlalchemy import create_engine, text
 from starlette.config import Config
@@ -98,12 +98,21 @@ def lookup_tenant_connection(tenant_id: str) -> str:
     """Resolve tenant_id -> decrypted connection string. Read-only.
     Fails closed: unknown tenant -> 404. Suspended/expired/provisioning -> 403.
     """
+    return _lookup_tenant_connection(tenant_id, allow_provisioning=False)
+
+
+def lookup_tenant_connection_for_migration(tenant_id: str) -> str:
+    """Resolve a tenant database for migrations, including provisioning tenants."""
+    return _lookup_tenant_connection(tenant_id, allow_provisioning=True)
+
+
+def _lookup_tenant_connection(tenant_id: str, allow_provisioning: bool) -> str:
     with _cache_lock:
         cached = _tenant_cache.get(tenant_id)
         if cached:
             conn_str, status, cached_at = cached
             if datetime.utcnow() - cached_at < _CACHE_TTL:
-                _check_status(tenant_id, status)
+                _check_status(tenant_id, status, allow_provisioning)
                 return conn_str
             _tenant_cache.pop(tenant_id, None)
 
@@ -117,17 +126,31 @@ def lookup_tenant_connection(tenant_id: str) -> str:
         raise HTTPException(status_code=404, detail="Unknown school")
 
     encrypted_secret, status = row[0], row[1]
-    conn_str = _fernet.decrypt(encrypted_secret.encode()).decode()
+    try:
+        conn_str = _fernet.decrypt(encrypted_secret.encode()).decode()
+    except InvalidToken as e:
+        raise RuntimeError(
+            f"Could not decrypt the connection secret for tenant '{tenant_id}'. "
+            "Check that CONTROL_PLANE_ENCRYPTION_KEY matches the key used to "
+            "encrypt the stored secret, and verify the tenant record."
+        ) from e
 
     with _cache_lock:
         _tenant_cache[tenant_id] = (conn_str, status, datetime.utcnow())
 
-    _check_status(tenant_id, status)
+    _check_status(tenant_id, status, allow_provisioning)
     return conn_str
 
 
-def _check_status(tenant_id: str, status: str) -> None:
-    if status.lower() not in ("active", "trial"):
+def _check_status(
+    tenant_id: str,
+    status: str,
+    allow_provisioning: bool = False,
+) -> None:
+    allowed_statuses = {"active", "trial"}
+    if allow_provisioning:
+        allowed_statuses.add("provisioning")
+    if status.lower() not in allowed_statuses:
         logger.warning(f"Blocked login attempt for tenant '{tenant_id}' with status '{status}'")
         raise HTTPException(status_code=403, detail="School account is not active")
 

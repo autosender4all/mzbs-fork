@@ -1,75 +1,124 @@
 # Tenant Onboarding Procedure
 
-This document captures the full tenant onboarding and verification workflow for a new school, including the control-plane setup and the final live-check steps.
+This document describes how to initialize a new tenant database, create its
+first administrator, check its connection secret, and apply pending migrations.
 
-## 1. Create the tenant's own Neon database
+## 1. Create the tenant database
 
-- Create a new Neon project dedicated to this school only.
+- Create a new, empty PostgreSQL database dedicated to this school.
 - Never share a database across tenants.
-- Run the full schema creation process for that database using the application's normal initialization flow, such as `create_db_and_tables()` on first connect or the existing schema process.
-- Save the raw Neon connection string securely in a password manager or secure note.
-- You will need this value again in step 3; do not store it in backend env vars going forward.
+- Save its raw connection string securely. Do not commit it or paste it into
+  source code.
 
-## 2. Register the tenant in the Control Plane via the platform-admin panel
+## 2. Register the tenant in the Control Plane
 
-- Use the platform-admin panel's "create tenant" flow instead of manually editing a row.
-- Choose a unique `tenant_id` slug, such as `khatam_e_nabowat`.
-- Use lowercase, no spaces, and confirm the slug is not reused from an older or renamed tenant.
-- Fill in the required school details:
-  - school name
-  - contact email
-  - frontend URL
-  - raw Neon connection string from step 1
-- The create-tenant form should route the connection string through the normal `encrypt_connection_string()` path using the current key.
-- Confirm the tenant appears in the control-plane tenant list with status `provisioning`. New tenants are created in this state; the backend deliberately blocks login for `provisioning` tenants.
+- Use the platform-admin panel's tenant-creation flow.
+- Choose a unique, lowercase `tenant_id` slug with no spaces.
+- Enter the school details and the database connection string.
+- Confirm the connection string is encrypted by the normal
+  `encrypt_connection_string()` path using the current
+  `CONTROL_PLANE_ENCRYPTION_KEY`.
+- Confirm the tenant is registered with status `provisioning`.
 
-## 3. Run migrations against this tenant only
+## 3. Optional: verify the saved connection secret
 
-Run the targeted migration command for the one tenant being onboarded:
+From the repository root in PowerShell:
 
-```bash
-uv run python -c "from migrations.run_all_tenants import run_for_tenant, discover_migrations; run_for_tenant('<tenant_id>', '<connection_string>', discover_migrations())"
+```powershell
+Set-Location F:\2_PROJECTS\A_MMS\mzbs
+F:\2_PROJECTS\A_MMS\mzbs\.venv\Scripts\python.exe scripts\tenant_create_verify\encryption_test.py
 ```
 
-This is the per-tenant onboarding path for a single school and is the intended alternative to running the full fan-out across all tenants.
+Before running, set `TENANT_ID` in `encryption_test.py` to the new tenant ID.
+The script reports whether the stored secret can be decrypted; it does not
+change the Control Plane or tenant database.
 
-## 4. Seed initial data and create the admin user
+## 4. Initialize the tenant and create its first admin
 
-- Apply the standard seed process for the new tenant, including default role permissions and initial module setup.
-- Create the first real admin user for the school directly in that tenant's database.
+Create a tenant-specific environment file such as `.env.newtenant` containing
+the tenant database's `DATABASE_URL`, then run from the repository root:
 
-## 5. Deploy the frontend
+```powershell
+F:\2_PROJECTS\A_MMS\mzbs\.venv\Scripts\python.exe scripts\create_initial_admin.py --env-file .env.newtenant
+```
 
-- In Netlify, choose "Add new site" and then "Import existing project".
-- Use the same `mzbs` repository and the same build configuration used by the other tenant sites.
-- Give the site a clear, unambiguous name.
-- Set the frontend env vars:
+The script requires an empty PostgreSQL database, creates its schema and
+required defaults, prompts for confirmation, creates the first administrator,
+and records its reviewed migration baseline. Run it only once for that new
+tenant database. Do not rerun it to apply later migrations.
 
-```bash
-NEXT_PUBLIC_API_URL=<same shared backend URL as every other tenant>
-NEXT_PUBLIC_TENANT_ID=<the tenant_id from step 2, exact match>
+## 5. Check and apply pending migrations for this tenant
+
+First do a dry run:
+
+```powershell
+F:\2_PROJECTS\A_MMS\mzbs\.venv\Scripts\python.exe -m migrations.run_tenant_migrations --tenant <tenant_id> --dry-run
+```
+
+If it reports pending migrations and no errors, apply them:
+
+```powershell
+F:\2_PROJECTS\A_MMS\mzbs\.venv\Scripts\python.exe -m migrations.run_tenant_migrations --tenant <tenant_id>
+```
+
+This script resolves the database connection using the tenant ID, checks
+`schema_migrations`, skips recorded IDs, and applies only unrecorded migrations.
+It supports tenants in `provisioning` status and does not activate the tenant.
+Do not expect it to replay migration IDs already recorded by the initializer.
+
+For example, the tenant `bwhs` was initialized and its dry run reported all 16
+migrations already applied and none pending. In that case, do not run the live
+migration command; continue with verification.
+
+## 6. Repair a connection secret only if necessary
+
+The repair script overwrites the stored database connection secret for the
+tenant ID hard-coded in the script. It is not part of routine onboarding.
+Before using it, verify that:
+
+- `TENANT_ID` in the script is the intended tenant.
+- The repository-root `.env` points to the intended Control Plane.
+- The database URL entered at the prompt belongs to that tenant.
+- You have verified the encryption key is the one currently used by the
+  application.
+
+Run from the repository root only when a repair is required:
+
+```powershell
+F:\2_PROJECTS\A_MMS\mzbs\.venv\Scripts\python.exe scripts\tenant_create_verify\fix_mzbs_connection_secret.py
+```
+
+Review the displayed Control Plane host and tenant details, and only type
+`yes` after confirming the target. Then rerun the encryption check and the
+migration dry run.
+
+## 7. Deploy the frontend
+
+- In Netlify, choose **Add new site** and then **Import existing project**.
+- Use the same `mzbs` repository and build configuration as the other tenant
+  sites.
+- Set the frontend environment variables:
+
+```text
+NEXT_PUBLIC_API_URL=<shared backend URL>
+NEXT_PUBLIC_TENANT_ID=<exact tenant_id from the Control Plane>
 ```
 
 - Trigger the first deploy so the tenant ID is baked into the site.
 
-## 6. Enable login for verification
+## 8. Enable login and verify the tenant
 
-The backend allows database access only when a tenant's control-plane status is
-`trial` or `active`. After migrations and admin-user setup are complete, change
+The backend allows database access only when the Control Plane status is
+`trial` or `active`. After initialization and migrations are complete, change
 the tenant from `provisioning` to `trial` in the platform-admin panel before
-attempting to log in. Branding can load while the tenant is still
-`provisioning`, so a visible school logo does not confirm that login is enabled.
-
-## 7. Verify before marking fully live
+attempting login.
 
 - Open the site in an incognito window and log in as the new admin.
-- Confirm the login request payload includes the correct `tenant_id`.
-- Confirm dashboard and CRUD activity is touching the new tenant's database and not another tenant's database.
-- Try a suspend/reactivate toggle from the admin panel and confirm it takes effect without restarting the backend.
+- Confirm the login request includes the correct `tenant_id`.
+- Confirm dashboard and CRUD activity uses the new tenant's database.
+- Verify expected modules and data.
 
-## 8. Mark the tenant Active in the Control Plane
+## 9. Mark the tenant active
 
-- After verification succeeds, update the tenant's status from `trial` to
-  `active` in the control plane if it should be fully live.
-- Once verified, the onboarding is complete.
-- No backend redeploy is needed during this process.
+After verification succeeds, change the tenant status from `trial` to `active`
+if it should be fully live. No backend redeploy is needed for this process.

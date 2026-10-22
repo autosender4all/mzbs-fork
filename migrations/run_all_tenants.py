@@ -81,6 +81,7 @@ def run_for_tenant(
         "pending": [],  # only populated in dry-run mode
         "failed": None,
     }
+    engine = None
     try:
         engine = create_engine(conn_str)
         with Session(engine) as session:
@@ -101,6 +102,9 @@ def run_for_tenant(
 
     except Exception as e:  # noqa: BLE001 — intentionally broad, see docstring
         result["failed"] = f"{type(e).__name__}: {e}"
+    finally:
+        if engine is not None:
+            engine.dispose()
 
     return result
 
@@ -135,14 +139,28 @@ def main(dry_run: bool = False, only: str | None = None, tenant: str | None = No
     any_failed = False
 
     for t in active_tenants:
-        conn_str = lookup_tenant_connection(t.tenant_id)
-        result = run_for_tenant(t.tenant_id, conn_str, all_migrations, dry_run=dry_run)
+        try:
+            conn_str = lookup_tenant_connection(t.tenant_id)
+        except Exception as e:  # noqa: BLE001 — isolate failures to this tenant
+            result = {
+                "tenant_id": t.tenant_id,
+                "applied": [],
+                "skipped": [],
+                "pending": [],
+                "failed": f"{type(e).__name__}: {e}",
+                "lookup_failed": True,
+            }
+        else:
+            result = run_for_tenant(t.tenant_id, conn_str, all_migrations, dry_run=dry_run)
 
         if dry_run:
-            print(
-                f"[{result['tenant_id']}] "
-                f"pending={result['pending']} already_applied={len(result['skipped'])}"
-            )
+            if result["failed"]:
+                print(f"[{result['tenant_id']}] FAILED: {result['failed']}")
+            else:
+                print(
+                    f"[{result['tenant_id']}] "
+                    f"pending={result['pending']} already_applied={len(result['skipped'])}"
+                )
         else:
             print(
                 f"[{result['tenant_id']}] "
@@ -154,7 +172,7 @@ def main(dry_run: bool = False, only: str | None = None, tenant: str | None = No
             # actually happened, so there's nothing worth an audit row for.
             for mid in result["applied"]:
                 write_migration_run_log(t.tenant_id, mid, "applied")
-            if result["failed"]:
+            if result["failed"] and not result.get("lookup_failed"):
                 # We don't know exactly which specific migration_id was mid-flight
                 # when the exception hit, so log it against the run as a whole
                 # under the first not-yet-applied migration in this batch.
@@ -168,17 +186,21 @@ def main(dry_run: bool = False, only: str | None = None, tenant: str | None = No
                 write_migration_run_log(
                     t.tenant_id, failing_id, "failed", error_detail=result["failed"]
                 )
-                any_failed = True
 
-        if result["failed"]:
+        if result["failed"] and not dry_run:
             print(f"    !! ERROR for {result['tenant_id']}: {result['failed']}")
+        if result["failed"]:
+            any_failed = True
 
     print("-" * 60)
     if any_failed:
-        print(
-            "One or more tenants FAILED. Check migration_run_log before re-running. "
-            "Do not re-run blindly."
-        )
+        if dry_run:
+            print("Dry run incomplete: resolve the tenant errors above before treating it as a complete check.")
+        else:
+            print(
+                "One or more tenants FAILED. Check migration_run_log before re-running. "
+                "Do not re-run blindly."
+            )
         return 1
 
     print("Done.")

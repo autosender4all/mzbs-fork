@@ -5,7 +5,10 @@ import os
 
 load_dotenv()
 
-TENANT_ID = "mzbs_staging_school"
+TENANT_ID = "greenwood-khanschool"
+# TENANT_ID = "bwhs"  
+# TENANT_ID = "mzbs" 
+# Tenant_id = "mzbs_staging_school" 
 # Change the tenant name above to "any other tenant_id" if you want to re-encrypt a different tenant's db_connection_secret. The script will still only ever touch that one row.
 
 database_url = os.getenv("CONTROL_PLANE_DATABASE_URL")
@@ -33,7 +36,7 @@ with engine.connect() as conn:
 
 print("status:", row[1])
 try:
-    decrypted = fernet.decrypt(row[0].encode()).decode()
-    print("Decryption OK:", decrypted[:30], "...")
+    fernet.decrypt(row[0].encode())
+    print("Decryption OK")
 except Exception as e:
     print("Decryption FAILED:", type(e).__name__, str(e))
